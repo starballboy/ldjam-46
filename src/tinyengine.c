@@ -189,6 +189,13 @@ typedef uint8_t			te_bool_u8;
 	typedef struct _tinyengine_platformWindowContext_t {
 		te_bool_u8 windowReady;
 
+		te_u32 minWidth;
+		te_u32 minHeight;
+		te_u32 maxWidth;
+		te_u32 maxHeight;
+		te_u32 aspectRatioWidth;
+		te_u32 aspectRatioHeight;
+
 		HWND win32window;
 		HGLRC win32openGLcontext;
 		HDC win32deviceContext;
@@ -235,6 +242,7 @@ void				tinyengine_terminate();
 		Display* display;
 		XVisualInfo* visualFormat;
 
+		Atom wm_size_hints;
 		Atom wm_delete_window;
 		XContext windowPointerContextID;
 
@@ -600,6 +608,43 @@ void _tinyengine_x11_destroyWindow(tinyengine_windowContext* window){
 
 }
 
+void _tinyengine_x11_setWindowMaxSize(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	XSizeHints* hints = XAllocSizeHints();
+	long returnedHints;
+	XGetWMNormalHints(tinyengine_state.x11state.display, window->platform.x11WindowID, hints, &returnedHints);
+	hints->flags |= PMaxSize;
+	hints->max_width = width;
+	hints->max_height = height;
+	XSetWMNormalHints(tinyengine_state.x11state.display, window->platform.x11WindowID, hints);
+	XFree(hints);
+}
+
+void _tinyengine_x11_setWindowMinSize(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	XSizeHints* hints = XAllocSizeHints();
+	long returnedHints;
+	XGetWMNormalHints(tinyengine_state.x11state.display, window->platform.x11WindowID, hints, &returnedHints);
+	hints->flags |= PMinSize;
+	hints->min_width = width;
+	hints->min_height = height;
+	XSetWMNormalHints(tinyengine_state.x11state.display, window->platform.x11WindowID, hints);
+	XFree(hints);
+}
+
+void _tinyengine_x11_setWindowAspectRatio(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	XSizeHints* hints = XAllocSizeHints();
+	long returnedHints;
+	XGetWMNormalHints(tinyengine_state.x11state.display, window->platform.x11WindowID, hints, &returnedHints);
+	hints->flags |= PAspect;
+	hints->min_aspect.x = hints->max_aspect.x = width;
+	hints->min_aspect.y = hints->max_aspect.y = height;
+	XSetWMNormalHints(tinyengine_state.x11state.display, window->platform.x11WindowID, hints);
+	XFree(hints);
+}
+
+void _tinyengine_x11_setWindowSize(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	XResizeWindow(tinyengine_state.x11state.display, window->platform.x11WindowID, width, height);
+}
+
 void _tinyengine_x11_setWindowTitle(tinyengine_windowContext* window, const char* title) {
 	XStoreName(tinyengine_state.x11state.display, window->platform.x11WindowID, title);
 }
@@ -679,6 +724,8 @@ te_bool_u8 _tinyengine_x11_init() {
 
 	tinyengine_state.x11state.wm_delete_window = XInternAtom(tinyengine_state.x11state.display, "WM_DELETE_WINDOW", False);
 
+	tinyengine_state.x11state.wm_size_hints = XInternAtom(tinyengine_state.x11state.display, "WM_SIZE_HINTS", False);
+
 	return TE_TRUE;
 }
 
@@ -697,17 +744,122 @@ void _tinyengine_glx_swapBuffers(tinyengine_windowContext* window) {
 #elif defined(TE_WIN32)
 // TODO: tinyengine_win32 descripes the platform, need a new name for the windowing system specificly
 
+#define _TE_WINSTYLE WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+
 LRESULT CALLBACK _tinyengine_win32_eventCallback(HWND hWindow, UINT Message, WPARAM wParam, LPARAM lParam) {
 
 	tinyengine_windowContext* window = GetPropA(hWindow,"tinyengine");
+	if(!window && Message == WM_CREATE) { window = (tinyengine_windowContext*) ((LPCREATESTRUCTA)lParam)->lpCreateParams; }
 	if(!window) { return DefWindowProc(hWindow,Message,wParam,lParam); }
 
 	switch(Message) {
-		//case WM_CREATE: /*window->platform.windowReady = TRUE;*/ TE_LOG("Window create event!\n"); return 0;
+		case WM_CREATE: window->platform.windowReady = TE_TRUE; return 0;
 		case WM_CLOSE: window->closeRequested = TE_TRUE; window->closeCallback(window); return 0;
 		case WM_DESTROY: window->closeRequested = TE_TRUE; window->closeCallback(window); return 0;
-		default: return DefWindowProc(hWindow,Message,wParam,lParam);
+
+		case WM_MOUSEACTIVATE: break;
+		case WM_CAPTURECHANGED: break;
+
+		case WM_SETFOCUS: break;
+		case WM_KILLFOCUS: break;
+
+		case WM_SYSCOMMAND: break;
+
+		case WM_INPUTLANGCHANGE: break;
+
+		// TODO: Use this for char input instead of keyrelease?
+		case WM_CHAR: break;
+		case WM_SYSCHAR: break;
+		case WM_UNICHAR: break;
+
+		case WM_KEYDOWN: break;
+		case WM_SYSKEYDOWN: break;
+		case WM_KEYUP: break;
+		case WM_SYSKEYUP: break;
+
+		case WM_LBUTTONDOWN: break;
+		case WM_RBUTTONDOWN: break;
+    case WM_MBUTTONDOWN: break;
+    case WM_XBUTTONDOWN: break;
+    case WM_LBUTTONUP: break;
+    case WM_RBUTTONUP: break;
+    case WM_MBUTTONUP: break;
+    case WM_XBUTTONUP: break;
+
+		case WM_MOUSEMOVE: break;
+
+		case WM_INPUT: break;
+
+		case WM_ERASEBKGND: return TRUE;
+
+
+		case WM_SIZING: // TODO: Seems to be busted on wine?
+			{
+				if(window->platform.aspectRatioWidth == 0 || window->platform.aspectRatioHeight == 0) {break;}
+				int edge = wParam;
+				RECT* size = (RECT*) lParam;
+
+				RECT reportedSize;
+				RECT adjustedSize;
+
+				// TODO: Should probably just memcpy this
+				GetClientRect(window->platform.win32window, &reportedSize);
+				GetClientRect(window->platform.win32window, &adjustedSize);
+				AdjustWindowRect(&adjustedSize,_TE_WINSTYLE,0);
+
+				te_i32 widthOffset = (reportedSize.right - reportedSize.left) - (adjustedSize.right - adjustedSize.left);
+				te_i32 heightOffset = (reportedSize.bottom - reportedSize.top) - (reportedSize.bottom - reportedSize.top);
+
+				const float ratio = (float) window->platform.aspectRatioWidth / (float) window->platform.aspectRatioHeight;
+
+				if (edge == WMSZ_LEFT  || edge == WMSZ_BOTTOMLEFT || edge == WMSZ_RIGHT || edge == WMSZ_BOTTOMRIGHT) {
+		        size->bottom = size->top + heightOffset + (int) ((size->right - size->left - widthOffset) / ratio);
+		    } else if (edge == WMSZ_TOPLEFT || edge == WMSZ_TOPRIGHT) {
+		        size->top = size->bottom - heightOffset - (int) ((size->right - size->left - widthOffset) / ratio);
+		    } else if (edge == WMSZ_TOP || edge == WMSZ_BOTTOM) {
+		        size->right = size->left + widthOffset + (int) ((size->bottom - size->top - heightOffset) * ratio);
+		    }
+
+				return TRUE;
+			}
+			break;
+		case WM_GETMINMAXINFO: // TODO: Seems to be busted in wine?
+			{
+				MINMAXINFO* info = (MINMAXINFO*) lParam;
+
+				RECT reportedSize;
+				RECT adjustedSize;
+
+				// TODO: Should probably just memcpy this
+				GetClientRect(window->platform.win32window, &reportedSize);
+				GetClientRect(window->platform.win32window, &adjustedSize);
+				AdjustWindowRect(&adjustedSize,_TE_WINSTYLE,0);
+
+				te_i32 widthOffset = (reportedSize.right - reportedSize.left) - (adjustedSize.right - adjustedSize.left);
+				te_i32 heightOffset = (reportedSize.bottom - reportedSize.top) - (reportedSize.bottom - reportedSize.top);
+
+				TE_LOG("MaxSize: %lix%li MinSize: %lix%li\n",info->ptMaxTrackSize.x,info->ptMaxTrackSize.y,info->ptMinTrackSize.x,info->ptMinTrackSize.y);
+
+				if(window->platform.minWidth > 0 && window->platform.minHeight > 0 ){
+					info->ptMinTrackSize.x = window->platform.minWidth + widthOffset;
+          info->ptMinTrackSize.y = window->platform.minHeight + heightOffset;
+				}
+
+				if(window->platform.maxWidth > 0 && window->platform.maxHeight > 0 ){
+					info->ptMaxTrackSize.x = window->platform.maxWidth + widthOffset;
+          info->ptMaxTrackSize.y = window->platform.maxHeight + heightOffset;
+				}
+
+				TE_LOG("MaxSize: %lix%li MinSize: %lix%li\n",info->ptMaxTrackSize.x,info->ptMaxTrackSize.y,info->ptMinTrackSize.x,info->ptMinTrackSize.y);
+
+				break;
+				return 0;
+			}
+			TE_LOG("TE1\n");
+			break;
 	}
+
+	return DefWindowProc(hWindow,Message,wParam,lParam);
 }
 
 void _tinyengine_win32_pollEvents() {
@@ -720,6 +872,54 @@ void _tinyengine_win32_pollEvents() {
 	}
 }
 
+void _tinyengine_win32_setWindowSize(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+
+
+	RECT adjustedSize = {0,0,width,height};
+	AdjustWindowRect(&adjustedSize,_TE_WINSTYLE,0);
+	width = adjustedSize.right - adjustedSize.left;
+	height = adjustedSize.bottom - adjustedSize.top;
+
+	SetWindowPos(
+		window->platform.win32window,
+		HWND_TOP,0,0,
+		width, height,
+		SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOMOVE | SWP_NOZORDER
+	);
+}
+
+void _tinyengine_win32_forceSizeUpdate(tinyengine_windowContext* window) {
+	RECT size;
+	GetWindowRect(window->platform.win32window, &size);
+	MoveWindow(window->platform.win32window,size.left, size.top, size.right - size.left, size.bottom - size.top, TRUE);
+}
+
+void _tinyengine_win32_setWindowMaxSize(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	window->platform.maxWidth = width;
+	window->platform.maxHeight = height;
+	_tinyengine_win32_forceSizeUpdate(window);
+}
+
+void _tinyengine_win32_setWindowMinSize(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	window->platform.minWidth = width;
+	window->platform.minHeight = height;
+	_tinyengine_win32_forceSizeUpdate(window);
+}
+
+void _tinyengine_win32_setWindowAspectRatio(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	window->platform.aspectRatioWidth = width;
+	window->platform.aspectRatioHeight = height;
+	_tinyengine_win32_forceSizeUpdate(window);
+}
+
+void _tinyengine_win32_getWindowSize(tinyengine_windowContext* window, te_u32* width, te_u32* height) {
+	RECT adjustedSize;
+	GetClientRect(window->platform.win32window, &adjustedSize);
+	AdjustWindowRect(&adjustedSize,_TE_WINSTYLE,0);
+	*width = adjustedSize.right - adjustedSize.left;
+	*height = adjustedSize.bottom - adjustedSize.top;
+}
+
 void _tinyengine_win32_setWindowTitle(tinyengine_windowContext* window, const char* title) {
 	SetWindowTextA(window->platform.win32window, title);
 }
@@ -728,42 +928,46 @@ void _tinyengine_win32_showWindow(tinyengine_windowContext* window) {
 	ShowWindow(window->platform.win32window, SW_SHOWNA);
 }
 
-#define _TE_WINERROR
-
 te_bool_u8 _tinyengine_win32_createWindow(tinyengine_windowContext* window){
 
 	// TODO: Load modern GL pipelines
 
 	HINSTANCE Instance = GetModuleHandle(NULL);
 
-	DWORD winStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME;
-
-	RECT adjustedSize = {0};
-	adjustedSize.right = 300;
-	adjustedSize.bottom = 300;
-	AdjustWindowRect(&adjustedSize,winStyle,0);
+	RECT adjustedSize = {0,0,300,300};
+	AdjustWindowRect(&adjustedSize,_TE_WINSTYLE,0);
 
 	int winWidth = adjustedSize.right - adjustedSize.left;
 	int winHeight = adjustedSize.bottom - adjustedSize.top;
 
-	window->platform.win32window = CreateWindowExA(0,tinyengine_win32_className,"tinyengine",winStyle,0,0,winWidth,winHeight,NULL,NULL,Instance,NULL);
+	window->platform.win32window = CreateWindowExA(0,tinyengine_win32_className,"tinyengine",_TE_WINSTYLE,CW_USEDEFAULT,CW_USEDEFAULT,winWidth,winHeight,NULL,NULL,Instance,window);
 
 	if(!window->platform.win32window) {
-		DWORD errorCode = GetLastError();
-		LPSTR errorMessage = NULL;
-		FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                                 NULL, errorCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&errorMessage, 0, NULL);
-		TE_ERROR("Error while creating window: %s",errorMessage);
+		#if defined(TE_DEBUG_OUTPUT_ENABLED)
+			DWORD errorCode = GetLastError();
+			LPSTR errorMessage = NULL;
+			FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+	                                 NULL, errorCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&errorMessage, 0, NULL);
+			TE_ERROR("Error while creating window: %s",errorMessage);
+		#endif
 		return TE_FALSE;
 	}
 
 	SetPropA(window->platform.win32window, "tinyengine", window);
 
 	// TODO: Is this even neccesary?
-	// Wait for window createEvent to fire before continuing TODO: Timeout?
-	/*while(!window->platform.windowReady){
-		_tinyengine_win32_pollEvents();
-	}*/
+	UINT_PTR timeout = SetTimer(NULL,0,1000,NULL);
+	while(!window->platform.windowReady){
+		MSG message;
+		GetMessageA(&message,0,0,0);
+		if(message.message == WM_TIMER && message.wParam == timeout) {
+			TE_ERROR("Timeout while waiting for windowCreate event!\n");
+			return TE_FALSE;
+		}
+		TranslateMessage(&message);
+		DispatchMessage(&message);
+	}
+	KillTimer(NULL,timeout);
 
 	window->platform.win32deviceContext = GetDC(window->platform.win32window);
 
@@ -830,6 +1034,8 @@ void _tinyengine_wgl_swapBuffers(tinyengine_windowContext* window) {
 
 #endif
 
+#include <string.h>
+
 void _tinyengine_windowCallbackStub() { };
 
 tinyengine_windowContext* tinyengine_createWindow() {
@@ -874,7 +1080,6 @@ void tinyengine_destroyAllWindows() {
 
 	while(node != NULL) {
 		tinyengine_windowContext* window = node->value;
-		TE_LOG("0x%x\n",window);
 		if(window != NULL) {
 			#if defined(TE_LINUX)
 				_tinyengine_x11_destroyWindow(window);
@@ -892,6 +1097,30 @@ void tinyengine_destroyAllWindows() {
 	tinyengine_state.windowContextList.length = 0;
 }
 
+void tinyengine_setWindowMaxSize(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	#if defined(TE_LINUX)
+		_tinyengine_x11_setWindowMaxSize(window,width,height);
+	#elif defined(TE_WIN32)
+		_tinyengine_win32_setWindowMaxSize(window,width,height);
+	#endif
+}
+
+void tinyengine_setWindowMinSize(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	#if defined(TE_LINUX)
+		_tinyengine_x11_setWindowMinSize(window,width,height);
+	#elif defined(TE_WIN32)
+		_tinyengine_win32_setWindowMinSize(window,width,height);
+	#endif
+}
+
+void tinyengine_setWindowAspectRatio(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	#if defined(TE_LINUX)
+		_tinyengine_x11_setWindowAspectRatio(window,width,height);
+	#elif defined(TE_WIN32)
+		_tinyengine_win32_setWindowAspectRatio(window,width,height);
+	#endif
+}
+
 void tinyengine_showWindow(tinyengine_windowContext* window) {
 	#if defined(TE_LINUX)
 		_tinyengine_x11_showWindow(window);
@@ -905,6 +1134,14 @@ void tinyengine_setWindowTitle(tinyengine_windowContext* window, const char* tit
 		_tinyengine_x11_setWindowTitle(window,title);
 	#elif defined(TE_WIN32)
 		_tinyengine_win32_setWindowTitle(window,title);
+	#endif
+}
+
+void tinyengine_setWindowSize(tinyengine_windowContext* window, te_u32 width, te_u32 height){
+	#if defined(TE_LINUX)
+		_tinyengine_x11_setWindowSize(window,width,height);
+	#elif defined(TE_WIN32)
+		_tinyengine_win32_setWindowSize(window,width,height);
 	#endif
 }
 
@@ -1236,11 +1473,25 @@ te_bool_u8 tinyengine_init() {
 
 	#if defined(TE_LINUX)
 		TE_LOG("tinyengine linux backend loaded.\n");
-		_tinyengine_linux_registerSignalHandlers();
+		#if defined(TE_DEBUG_OUTPUT_ENABLED)
+			_tinyengine_linux_registerSignalHandlers();
+		#endif
 		if(!_tinyengine_x11_init()) { TE_ERROR("Could not load x11 window manager backend!\n"); return TE_FALSE; }
 		//if(!_tinyengine_gl3_init()) { TE_ERROR("Could not load openGL 3.0 render backend!\n"); return TE_FALSE;}
 	#elif defined(TE_WIN32)
 		TE_LOG("tinyengine win32 backend loaded.\n");
+
+		#if defined(TE_DEBUG_OUTPUT_ENABLED)
+			static const char *(CDECL *pwine_get_version)(void);
+			HMODULE hntdll = GetModuleHandle("ntdll.dll");
+			if(!hntdll) {
+				TE_WARN("No ntdll.dll detected?\n");
+			}else {
+				pwine_get_version = (void *)GetProcAddress(hntdll, "wine_get_version");
+				if(pwine_get_version) { TE_LOG("running on Wine %s\n",pwine_get_version());}
+			}
+		#endif
+
 		if(!_tinyengine_win32_init()) { TE_ERROR("Couldn not load win32 window manager backend!\n"); return TE_FALSE; }
 		//if(!_tinyengine_gl3_init()) { TE_ERROR("Could not load openGL 3.0 render backend!\n"); return TE_FALSE;}
 	#else
