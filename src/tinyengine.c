@@ -113,6 +113,16 @@ typedef struct te_vector2_f32		te_v2_f32;
 
 /* END THREADING HEADER */
 
+/* NVIDIA OPTIMUS SELECT MAGIC NUMBER */
+
+// TODO: Add build switch to this and maybe its supported on linux too?
+#if defined(TE_WIN32)
+	// TODO: Temp disable for faster debugging
+	//_declspec(dllexport) const te_u32 NvOptimusEnablement = 0x00000001;
+#endif
+
+/* END NVIDIA OPTIMUS */
+
 /* DEBUG HEADER */
 
 #ifdef TE_DEBUG
@@ -874,8 +884,6 @@ LRESULT CALLBACK _tinyengine_win32_eventCallback(HWND hWindow, UINT Message, WPA
 				te_i32 widthOffset = (reportedSize.right - reportedSize.left) - (adjustedSize.right - adjustedSize.left);
 				te_i32 heightOffset = (reportedSize.bottom - reportedSize.top) - (reportedSize.bottom - reportedSize.top);
 
-				TE_LOG("MaxSize: %lix%li MinSize: %lix%li\n",info->ptMaxTrackSize.x,info->ptMaxTrackSize.y,info->ptMinTrackSize.x,info->ptMinTrackSize.y);
-
 				if(window->platform.minWidth > 0 && window->platform.minHeight > 0 ){
 					info->ptMinTrackSize.x = window->platform.minWidth + widthOffset;
           info->ptMinTrackSize.y = window->platform.minHeight + heightOffset;
@@ -885,8 +893,6 @@ LRESULT CALLBACK _tinyengine_win32_eventCallback(HWND hWindow, UINT Message, WPA
 					info->ptMaxTrackSize.x = window->platform.maxWidth + widthOffset;
           info->ptMaxTrackSize.y = window->platform.maxHeight + heightOffset;
 				}
-
-				TE_LOG("MaxSize: %lix%li MinSize: %lix%li\n",info->ptMaxTrackSize.x,info->ptMaxTrackSize.y,info->ptMinTrackSize.x,info->ptMinTrackSize.y);
 
 				break;
 				return 0;
@@ -1317,6 +1323,8 @@ typedef te_f32	te_GLfloat;
 
 typedef char		te_GLchar;
 
+typedef te_bool_u8 te_GLboolean;
+
 typedef te_GLint* te_GLintptr;
 typedef te_GLsizei te_GLsizeiptr;
 
@@ -1340,6 +1348,15 @@ typedef te_GLsizei te_GLsizeiptr;
 #define TE_GL_TRIANGLES 0x0004
 #define TE_GL_TRIANGLE_STRIP 0x0005
 #define TE_GL_TRIANGLE_FAN 0x0006
+
+#define TE_GL_DYNAMIC_DRAW 0x88E8
+
+#define TE_GL_FLOAT 0x1406
+
+#define TE_GL_RGB 0x1907
+#define TE_GL_RGBA 0x1908
+
+#define TE_GL_TEXTURE0 0x84C0
 
 void _TE_GL_FUNCTION _tinyengine_gl3_stub() {
 	TE_FATAL("!!! Using unloaded GL3 function!\n");
@@ -1373,8 +1390,21 @@ typedef struct tinyengine_gl3_functionTable {
 	void (_TE_GL_FUNCTION *glDrawArrays)(te_GLenum, te_GLint, te_GLsizei);
 	te_GLuint (_TE_GL_FUNCTION *glGetUniformLocation)(te_GLuint, const te_GLchar*);
 
-	// glUseProgram, glBindTexture, glBindVertexArray, glUniform4f, glBindBuffer, glBufferSubData, glDrawArrays, glGetUniformLocation
+	void (_TE_GL_FUNCTION *glGenVertexArrays)(te_GLsizei, te_GLuint*);
+	void (_TE_GL_FUNCTION *glGenBuffers)(te_GLsizei, te_GLuint*);
+	void (_TE_GL_FUNCTION *glBufferData)(te_GLenum, te_GLsizeiptr, const void *, te_GLenum);
+	void (_TE_GL_FUNCTION *glVertexAttribPointer)(te_GLuint, te_GLint, te_GLenum, te_GLboolean, te_GLsizei, const void *);
+	void (_TE_GL_FUNCTION *glEnableVertexAttribArray)(te_GLuint);
 
+	void (_TE_GL_FUNCTION *glUniformMatrix4fv)(te_GLint, te_GLsizei, te_GLboolean, const te_GLfloat*);
+
+	void (_TE_GL_FUNCTION *glUniform1i)(te_GLint, te_GLint);
+
+	void (_TE_GL_FUNCTION *glGenTextures)(te_GLsizei, te_GLuint *);
+	void (_TE_GL_FUNCTION *glTexImage2D)(te_GLenum, GLint level, te_GLint, te_GLsizei, te_GLsizei, te_GLint, te_GLenum, te_GLenum, const void *);
+	void (_TE_GL_FUNCTION *glGenerateMipmap)(te_GLenum);
+
+	void (_TE_GL_FUNCTION *glActiveTexture)(te_GLenum);
 }	te_gl3_functions;
 
 // TODO: Compiler check and switch on this
@@ -1383,6 +1413,18 @@ typedef struct tinyengine_gl3_functionTable {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
 te_gl3_functions te_gl3 = {
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
 	&_tinyengine_gl3_stub,
 	&_tinyengine_gl3_stub,
 	&_tinyengine_gl3_stub,
@@ -1462,11 +1504,27 @@ te_bool_u8 _tinyengine_gl3_init() {
 	_TE_GL_FUNCTION_LOAD(glDrawArrays);
 	_TE_GL_FUNCTION_LOAD(glGetUniformLocation);
 
+	_TE_GL_FUNCTION_LOAD(glGenVertexArrays);
+	_TE_GL_FUNCTION_LOAD(glGenBuffers);
+	_TE_GL_FUNCTION_LOAD(glBufferData);
+	_TE_GL_FUNCTION_LOAD(glVertexAttribPointer);
+	_TE_GL_FUNCTION_LOAD(glEnableVertexAttribArray);
+
+	_TE_GL_FUNCTION_LOAD(glUniformMatrix4fv);
+
+	_TE_GL_FUNCTION_LOAD(glUniform1i);
+
+	_TE_GL_FUNCTION_LOAD(glGenTextures);
+	_TE_GL_FUNCTION_LOAD(glTexImage2D);
+	_TE_GL_FUNCTION_LOAD(glGenerateMipmap);
+
+	_TE_GL_FUNCTION_LOAD(glActiveTexture);
+
 	return TE_TRUE;
 }
 
 
-te_bool_u8 tinyengine_gl3_compileShader(te_GLuint* program, const char* vertexSrc, const char* fragmentSrc) {
+te_bool_u8 _tinyengine_gl3_compileShader(te_GLuint* program, const char* vertexSrc, const char* fragmentSrc) {
 
 	te_GLuint vertex, fragment;
 	te_GLint success ;
@@ -1525,22 +1583,91 @@ te_bool_u8 tinyengine_gl3_compileShader(te_GLuint* program, const char* vertexSr
 	return TE_TRUE;
 }
 
+te_GLuint _tinyengine_gl3_loadTextureRGB(tinyengine_windowContext* window, te_u32 width, te_u32 height, te_u32 channels, te_u8* data) {
+
+	if(!data) { return 0; }
+	if(channels > 4 || channels < 3) { return 0; }
+	if(width == 0 || height == 0) { return 0; }
+
+	te_GLuint texture;
+	te_gl3.glGenTextures(1, &texture);
+	te_gl3.glBindTexture(TE_GL_TEXTURE_2D, texture);
+	te_gl3.glTexImage2D(TE_GL_TEXTURE_2D, 0, TE_GL_RGBA, width, height, 0, channels == 4 ? TE_GL_RGBA :  TE_GL_RGB, GL_UNSIGNED_BYTE, data);
+	te_gl3.glGenerateMipmap(TE_GL_TEXTURE_2D);
+	return texture;
+}
+
+void _tinyengine_gl3_projectionOrtho(te_GLfloat matrix[16], te_f32 left, te_f32 right, te_f32 bottom, te_f32 top, te_f32 _near, te_f32 _far){
+
+	matrix[0] = 2/(right-left);
+	matrix[1] = 0;
+	matrix[2] = 0;
+	matrix[3] = -(right+left)/(right-left);
+
+	matrix[4] = 0;
+	matrix[5] = 2/(top-bottom);
+	matrix[6] = 0;
+	matrix[7] = -(top+bottom)/(top-bottom);
+
+	matrix[8] = 0;
+	matrix[9] = 0;
+	matrix[10] = -2/(_far-_near);
+	matrix[11] = -(_far+_near)/(_far-_near);
+
+	matrix[12] = 0;
+	matrix[13] = 0;
+	matrix[14] = 0;
+	matrix[15] = 1;
+}
+
+void _tinyengine_gl3_updateView(tinyengine_windowContext* window, te_u32 width, te_u32 height) {
+	_tinyengine_gl3_projectionOrtho(window->render2D.projectionMatrix,0.0f,(te_f32)width,(te_f32)height,0.0f,-1.0f,1.0f);
+	te_gl3.glUseProgram(window->render2D.flatShader);
+	te_gl3.glUniformMatrix4fv(te_gl3.glGetUniformLocation(window->render2D.flatShader,"projection"),1,TE_GL_FALSE,&window->render2D.projectionMatrix[0]);
+	te_gl3.glUseProgram(window->render2D.spriteShader);
+	te_gl3.glUniformMatrix4fv(te_gl3.glGetUniformLocation(window->render2D.spriteShader,"projection"),1,TE_GL_FALSE,&window->render2D.projectionMatrix[0]);
+}
+
 te_bool_u8 _tinyengine_gl3_createWindowRenderContext(tinyengine_windowContext* window) {
 	// TODO: check if opengl3 has been initilized and init it if not first
+	
+	te_gl3.glActiveTexture(TE_GL_TEXTURE0);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
 	glClearColor(0.0f,0.0f,0.0f,1.0f);
+
+	// Flat shape render pipeline
 
 	te_gl3.glGenVertexArrays(1, &window->render2D.flatVAO);
 	te_gl3.glGenBuffers(1, &window->render2D.flatVBO);
 	te_gl3.glBindVertexArray(window->render2D.flatVAO);
-	te_gl3.glBindBuffer(GL_ARRAY_BUFFER, window->render2D.flatVBO);
-	te_gl3.glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 2, NULL, GL_DYNAMIC_DRAW);
+	te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, window->render2D.flatVBO);
+	te_gl3.glBufferData(TE_GL_ARRAY_BUFFER, sizeof(float) * 6 * 2, NULL, TE_GL_DYNAMIC_DRAW);
 	te_gl3.glEnableVertexAttribArray(0);
 	te_gl3.glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), 0);
-	te_gl3.glBindBuffer(GL_ARRAY_BUFFER, 0);
+	te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, 0);
 	te_gl3.glBindVertexArray(0);
 
-	if(compileShader(&window->render2D.flatShader,FLAT_VERTEX_SRC,FLAT_FRAGMENT_SRC)){
+	if(_tinyengine_gl3_compileShader(&window->render2D.flatShader,TE_GL3_FLAT_VERTEX_SRC,TE_GL3_FLAT_FRAGMENT_SRC)){
 		// Uniform init
+	} else { return TE_FALSE; }
+
+	// Sprite render pipeline
+
+	te_gl3.glGenVertexArrays(1, &window->render2D.spriteVAO);
+	te_gl3.glGenBuffers(1, &window->render2D.spriteVBO);
+	te_gl3.glBindVertexArray(window->render2D.spriteVAO);
+	te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, window->render2D.spriteVBO);
+	te_gl3.glBufferData(TE_GL_ARRAY_BUFFER, sizeof(te_f32) * 6 * 4, NULL, TE_GL_DYNAMIC_DRAW);
+	te_gl3.glEnableVertexAttribArray(0);
+	te_gl3.glVertexAttribPointer(0, 4, TE_GL_FLOAT, TE_GL_FALSE, 4 * sizeof(te_GLfloat), 0);
+	te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, 0);
+	te_gl3.glBindVertexArray(0);
+
+	if(_tinyengine_gl3_compileShader(&window->render2D.spriteShader,TE_GL3_SPRITE_VERTEX_SRC,TE_GL3_SPRITE_FRAGMENT_SRC)){
+		te_gl3.glUseProgram(window->render2D.spriteShader);
+		te_gl3.glUniform1i(te_gl3.glGetUniformLocation(window->render2D.spriteShader, "texture_bank"), 0);
 	} else { return TE_FALSE; }
 
 	return TE_TRUE;
@@ -1587,6 +1714,41 @@ void _tinyengine_gl3_drawRectangle2D(tinyengine_windowContext* window, te_f32 x,
 	te_gl3.glBindVertexArray(0);
 }
 
+void _tinyengine_gl3_drawSprite(tinyengine_windowContext* window, te_GLuint texture, te_f32 x, te_f32 y, te_f32 width, te_f32 height, te_f32 scale, te_f32 tex_width, te_f32 tex_height, te_f32 tex_x, te_f32 tex_y) {
+	te_gl3.glUseProgram(window->render2D.spriteShader);
+	te_gl3.glBindTexture(GL_TEXTURE_2D,texture);
+	te_gl3.glBindVertexArray(window->render2D.spriteVAO);
+
+	// this is still a mainly cpu heavy operation
+
+	te_f32 ux0 = tex_x / tex_width;
+	te_f32 uy0 = -tex_y / tex_height;
+	te_f32 ux1 = ux0 + (width / tex_width);
+	te_f32 uy1 = uy0 - (height / tex_height);
+
+	te_f32 vx0 = x;
+	te_f32 vy0 = y;
+	te_f32 vx1 = (width * scale) + x;
+	te_f32 vy1 = (height * scale) + y;
+
+	te_f32 vertices[] = {
+		// first triangle
+		 vx1,  vy0, ux1, uy0,  // top right
+		 vx1,  vy1, ux1, uy1,  // bottom right
+		 vx0,  vy0, ux0, uy0,  // top left
+		// second triangle
+		 vx1,  vy1, ux1, uy1,  // bottom right
+		 vx0,  vy1, ux0, uy1,  // bottom left
+		 vx0,  vy0, ux0, uy0   // top left
+	};
+
+	te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, window->render2D.spriteVBO);
+	te_gl3.glBufferSubData(TE_GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+	te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, 0);
+
+	te_gl3.glDrawArrays(TE_GL_TRIANGLES, 0, 6);
+	te_gl3.glBindVertexArray(0);
+}
 
 
 #else
