@@ -17,11 +17,11 @@ int main() {
 	tinyengine_showWindow(window);
 	tinyengine_makeCurrent(window);
 	_tinyengine_gl3_init();
-
-	glClearColor(0.0f,0.0f,0.0f,1.0f);
+	_tinyengine_gl3_createWindowRenderContext(window);
 
 	while(!window->closeRequested) {
-		glClear(GL_COLOR_BUFFER_BIT);
+		_tinyengine_gl3_startFrame(window);
+		_tinyengine_gl3_endFrame(window);
 		tinyengine_swapBuffers(window);
 		tinyengine_pollEvents();
 	}

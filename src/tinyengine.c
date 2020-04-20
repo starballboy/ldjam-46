@@ -83,6 +83,17 @@ typedef double			te_f64;
 
 typedef uint8_t			te_bool_u8;
 
+// TODO: Add unions to vectors for aliases of rgba
+
+struct te_vector4_f32 { te_f32 x; te_f32 y; te_f32 z; te_f32 w; };
+typedef struct te_vector4_f32		te_v4_f32;
+
+struct te_vector3_f32 { te_f32 x; te_f32 y; te_f32 z; };
+typedef struct te_vector3_f32		te_v3_f32;
+
+struct te_vector2_f32 { te_f32 x; te_f32 y; };
+typedef struct te_vector2_f32		te_v2_f32;
+
 #if !defined(NULL)
 #define NULL 0
 #endif
@@ -121,7 +132,7 @@ typedef uint8_t			te_bool_u8;
 #endif
 
 #ifndef TE_DEBUG_LOG_PREFIX
-	#define TE_DEBUG_LOG_PREFIX
+	#define TE_DEBUG_LOG_PREFIX [TINYENGINE] 
 #endif
 
 #define _TE_DEBUG_INFO "[" TE_D2STR(__FILE__) ":" TE_D2STR(__LINE__) "]"
@@ -204,6 +215,28 @@ typedef uint8_t			te_bool_u8;
 	typedef struct _tinyengine_platformWindowContext_t {} _tinyengine_platformWindowContext;
 #endif
 
+#if defined(TE_WIN32) || defined(TE_LINUX)
+ typedef struct _tinyengine_render2DWindowContext_t {
+	 te_f32 projectionMatrix[16];
+
+	 te_u32 textShader;
+	 te_u32 textVAO;
+	 te_u32 textVBO;
+
+	 te_u32 spriteShader;
+	 te_u32 spriteVBO;
+	 te_u32 spriteVAO;
+
+	 te_u32 flatShader;
+	 te_u32 flatVBO;
+	 te_u32 flatVAO;
+ } _tinyengine_render2DWindowContext;
+#else
+typedef struct _tinyengine_render2DWindowContext_t {
+	te_u8 _filler; // TODO: only here to fill in empty struct? refactor to not use empty structs
+} _tinyengine_render2DWindowContext;
+#endif
+
 typedef struct tinyengine_windowContext_t{
 	te_bool_u8 closeRequested;
 	void(*characterCallback)(struct tinyengine_windowContext_t*,te_u32);
@@ -211,6 +244,7 @@ typedef struct tinyengine_windowContext_t{
 	void(*frameCallback)(struct tinyengine_windowContext_t*,te_f64,te_u32,te_u32);
 	void(*closeCallback)(struct tinyengine_windowContext_t*);
 	_tinyengine_platformWindowContext platform;
+	_tinyengine_render2DWindowContext render2D;
 } tinyengine_windowContext;
 
 typedef void (*tinyengine_windowCharacterCallback)(tinyengine_windowContext*,te_u32);
@@ -256,6 +290,7 @@ void				tinyengine_terminate();
 	// TODO: Should this string be moved into the state?
 	const char* tinyengine_win32_className = "tinyengineWin32";
 	typedef struct tinyengine_win32_state_t {
+		te_u8 _nothing; // TODO: included to avoid empty struct errors for now
 	} tinyengine_win32_state;
 #endif
 
@@ -295,8 +330,9 @@ struct tinyengine_state_t {
 #include <stdlib.h> // malloc(); free();
 #include <stdio.h> // fprintf(); FILE; std..; vfprintf();
 #include <stdarg.h> // va_list; va_start(); va_end();
-#include <pthread.h> // pthread_mutex_lock(); pthread_mutex_unlock(); pthread_mutex_t
-
+#if defined(TE_PTHREADS)
+	#include <pthread.h> // pthread_mutex_lock(); pthread_mutex_unlock(); pthread_mutex_t
+#endif
 #if defined(TE_LINUX)
 #include <execinfo.h> // backtrace(); backtrace_symbols(); backtrace_symbols_fd();
 #endif
@@ -779,12 +815,12 @@ LRESULT CALLBACK _tinyengine_win32_eventCallback(HWND hWindow, UINT Message, WPA
 
 		case WM_LBUTTONDOWN: break;
 		case WM_RBUTTONDOWN: break;
-    case WM_MBUTTONDOWN: break;
-    case WM_XBUTTONDOWN: break;
-    case WM_LBUTTONUP: break;
-    case WM_RBUTTONUP: break;
-    case WM_MBUTTONUP: break;
-    case WM_XBUTTONUP: break;
+		case WM_MBUTTONDOWN: break;
+		case WM_XBUTTONDOWN: break;
+		case WM_LBUTTONUP: break;
+		case WM_RBUTTONUP: break;
+		case WM_MBUTTONUP: break;
+		case WM_XBUTTONUP: break;
 
 		case WM_MOUSEMOVE: break;
 
@@ -1014,6 +1050,7 @@ te_bool_u8 _tinyengine_win32_init() {
 	winClassParams.lpszClassName = tinyengine_win32_className;
 	RegisterClassExA(&winClassParams);
 	TE_LOG("win32 windows manager loaded.\n");
+	return TE_TRUE;
 }
 
 void _tinyengine_win32_terminate() {
@@ -1036,7 +1073,7 @@ void _tinyengine_wgl_swapBuffers(tinyengine_windowContext* window) {
 
 #include <string.h>
 
-void _tinyengine_windowCallbackStub() { };
+void _tinyengine_windowCallbackStub(tinyengine_windowContext* window, ...) { };
 
 tinyengine_windowContext* tinyengine_createWindow() {
 
@@ -1280,6 +1317,9 @@ typedef te_f32	te_GLfloat;
 
 typedef char		te_GLchar;
 
+typedef te_GLint* te_GLintptr;
+typedef te_GLsizei te_GLsizeiptr;
+
 #define TE_GL_FALSE 0
 #define TE_GL_TRUE 1
 
@@ -1294,32 +1334,52 @@ typedef char		te_GLchar;
 #define TE_GL_COMPILE_STATUS 0x8B81
 #define TE_GL_LINK_STATUS 0x8B82
 
-void _tinyengine_gl3_stub() {
+#define TE_GL_TEXTURE_2D 0x0DE1
+#define TE_GL_ARRAY_BUFFER 0x8892
+
+#define TE_GL_TRIANGLES 0x0004
+#define TE_GL_TRIANGLE_STRIP 0x0005
+#define TE_GL_TRIANGLE_FAN 0x0006
+
+void _TE_GL_FUNCTION _tinyengine_gl3_stub() {
 	TE_FATAL("!!! Using unloaded GL3 function!\n");
 	TE_TRACE();
 	exit(-1);
 }
 
 // TODO: Should this be moved into the state? or remain out for use by gamedevs and null otherwise?
-
 typedef struct tinyengine_gl3_functionTable {
-	_TE_GL_FUNCTION te_GLenum (*glGetError)();
-	_TE_GL_FUNCTION te_GLuint (*glCreateShader)(te_GLenum);
-	_TE_GL_FUNCTION void (*glCompileShader)(te_GLuint);
-	_TE_GL_FUNCTION void (*glGetShaderiv)(te_GLuint, te_GLenum, te_GLint*);
-	_TE_GL_FUNCTION void (*glGetShaderInfoLog)(te_GLuint, te_GLsizei, te_GLsizei*, te_GLchar*);
-	_TE_GL_FUNCTION void (*glBindAttribLocation)(te_GLuint, te_GLuint, const te_GLchar*);
-	_TE_GL_FUNCTION te_GLuint (*glCreateProgram)();
-	_TE_GL_FUNCTION void (*glAttachShader)(te_GLuint, te_GLuint);
-	_TE_GL_FUNCTION void (*glLinkProgram)(te_GLuint);
-	_TE_GL_FUNCTION void (*glGetProgramiv)(te_GLuint, te_GLenum, te_GLint*);
-	_TE_GL_FUNCTION void (*glGetProgramInfoLog)(te_GLuint, te_GLsizei, te_GLsizei*, te_GLchar*);
-	_TE_GL_FUNCTION void (*glDeleteShader)(te_GLuint);
-	_TE_GL_FUNCTION void (*glDeleteProgram)(te_GLuint);
-	_TE_GL_FUNCTION void (*glShaderSource)(te_GLuint, te_GLsizei, const te_GLchar *const*, const te_GLint*);
+	te_GLenum ( _TE_GL_FUNCTION *glGetError)();
+	te_GLuint ( _TE_GL_FUNCTION *glCreateShader)(te_GLenum);
+	void ( _TE_GL_FUNCTION *glCompileShader)(te_GLuint);
+	void ( _TE_GL_FUNCTION *glGetShaderiv)(te_GLuint, te_GLenum, te_GLint*);
+	void ( _TE_GL_FUNCTION *glGetShaderInfoLog)(te_GLuint, te_GLsizei, te_GLsizei*, te_GLchar*);
+	void ( _TE_GL_FUNCTION *glBindAttribLocation)(te_GLuint, te_GLuint, const te_GLchar*);
+	te_GLuint ( _TE_GL_FUNCTION *glCreateProgram)();
+	void (_TE_GL_FUNCTION *glAttachShader)(te_GLuint, te_GLuint);
+	void (_TE_GL_FUNCTION *glLinkProgram)(te_GLuint);
+	void (_TE_GL_FUNCTION *glGetProgramiv)(te_GLuint, te_GLenum, te_GLint*);
+	void (_TE_GL_FUNCTION *glGetProgramInfoLog)(te_GLuint, te_GLsizei, te_GLsizei*, te_GLchar*);
+	void (_TE_GL_FUNCTION *glDeleteShader)(te_GLuint);
+	void (_TE_GL_FUNCTION *glDeleteProgram)(te_GLuint);
+	void (_TE_GL_FUNCTION *glShaderSource)(te_GLuint, te_GLsizei, const te_GLchar *const*, const te_GLint*);
+
+	void (_TE_GL_FUNCTION *glUseProgram)(te_GLuint);
+	void (_TE_GL_FUNCTION *glBindTexture)(te_GLenum,te_GLuint);
+	void (_TE_GL_FUNCTION *glBindVertexArray)(te_GLuint);
+	void (_TE_GL_FUNCTION *glUniform4f)(te_GLint,te_GLfloat,te_GLfloat,te_GLfloat,te_GLfloat);
+	void (_TE_GL_FUNCTION *glBindBuffer)(te_GLenum,te_GLuint);
+	void (_TE_GL_FUNCTION *glBufferSubData)(te_GLenum,te_GLintptr,te_GLsizeiptr, const void*);
+	void (_TE_GL_FUNCTION *glDrawArrays)(te_GLenum, te_GLint, te_GLsizei);
+	te_GLuint (_TE_GL_FUNCTION *glGetUniformLocation)(te_GLuint, const te_GLchar*);
+
+	// glUseProgram, glBindTexture, glBindVertexArray, glUniform4f, glBindBuffer, glBufferSubData, glDrawArrays, glGetUniformLocation
+
 }	te_gl3_functions;
 
 // TODO: Compiler check and switch on this
+#pragma warning(push)
+#pragma warning( disable : 4113 4133 4068 )
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
 te_gl3_functions te_gl3 = {
@@ -1336,9 +1396,17 @@ te_gl3_functions te_gl3 = {
 	&_tinyengine_gl3_stub,
 	&_tinyengine_gl3_stub,
 	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
+	&_tinyengine_gl3_stub,
 	&_tinyengine_gl3_stub
 };
 #pragma GCC diagnostic pop
+#pragma warning(pop)
 
 void* _tinyengine_gl_loadProc(const char* function) {
 	#if defined(TE_WIN32)
@@ -1357,7 +1425,7 @@ void* _tinyengine_gl_loadProc(const char* function) {
 #define _TE_GL_FUNCTION_LOAD(_f) te_gl3._f = _tinyengine_gl_loadProc(TE_D2STR(_f));
 
 te_bool_u8 _tinyengine_gl3_init() {
-	_TE_GL_FUNCTION const GLubyte* (*te_glGetString)(te_GLenum name) = _tinyengine_gl_loadProc("glGetString");
+	const GLubyte* ( _TE_GL_FUNCTION *te_glGetString)(te_GLenum name) = _tinyengine_gl_loadProc("glGetString");
 	if(!te_glGetString) { TE_ERROR("Could not get address of glGetString!\n"); return TE_FALSE; }
 	if(te_glGetString(TE_GL_VERSION) == NULL) { TE_ERROR("glContext not valid!\n"); return TE_FALSE; }
 	if(atof(te_glGetString(TE_GL_VERSION)) < 3.0 ) { TE_ERROR("openGL version < 3.0!\n"); return TE_FALSE; }
@@ -1384,6 +1452,15 @@ te_bool_u8 _tinyengine_gl3_init() {
 	_TE_GL_FUNCTION_LOAD(glDeleteShader);
 	_TE_GL_FUNCTION_LOAD(glDeleteProgram);
 	_TE_GL_FUNCTION_LOAD(glShaderSource);
+
+	_TE_GL_FUNCTION_LOAD(glUseProgram);
+	_TE_GL_FUNCTION_LOAD(glBindTexture);
+	_TE_GL_FUNCTION_LOAD(glBindVertexArray);
+	_TE_GL_FUNCTION_LOAD(glUniform4f);
+	_TE_GL_FUNCTION_LOAD(glBindBuffer);
+	_TE_GL_FUNCTION_LOAD(glBufferSubData);
+	_TE_GL_FUNCTION_LOAD(glDrawArrays);
+	_TE_GL_FUNCTION_LOAD(glGetUniformLocation);
 
 	return TE_TRUE;
 }
@@ -1450,7 +1527,64 @@ te_bool_u8 tinyengine_gl3_compileShader(te_GLuint* program, const char* vertexSr
 
 te_bool_u8 _tinyengine_gl3_createWindowRenderContext(tinyengine_windowContext* window) {
 	// TODO: check if opengl3 has been initilized and init it if not first
+	glClearColor(0.0f,0.0f,0.0f,1.0f);
 
+	te_gl3.glGenVertexArrays(1, &window->render2D.flatVAO);
+	te_gl3.glGenBuffers(1, &window->render2D.flatVBO);
+	te_gl3.glBindVertexArray(window->render2D.flatVAO);
+	te_gl3.glBindBuffer(GL_ARRAY_BUFFER, window->render2D.flatVBO);
+	te_gl3.glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 2, NULL, GL_DYNAMIC_DRAW);
+	te_gl3.glEnableVertexAttribArray(0);
+	te_gl3.glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), 0);
+	te_gl3.glBindBuffer(GL_ARRAY_BUFFER, 0);
+	te_gl3.glBindVertexArray(0);
+
+	if(compileShader(&window->render2D.flatShader,FLAT_VERTEX_SRC,FLAT_FRAGMENT_SRC)){
+		// Uniform init
+	} else { return TE_FALSE; }
+
+	return TE_TRUE;
+}
+
+void _tinyengine_gl3_startFrame(tinyengine_windowContext* window) {
+	glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void _tinyengine_gl3_endFrame(tinyengine_windowContext* window) {
+
+}
+
+// TODO: Replace all the vertex logic with a transformation uniform to stretch a square around instead
+void _tinyengine_gl3_drawRectangle2D(tinyengine_windowContext* window, te_f32 x, te_f32 y, te_f32 width, te_f32 height, te_v4_f32 color) {
+
+	te_gl3.glUseProgram(window->render2D.flatShader);
+	te_gl3.glBindTexture(TE_GL_TEXTURE_2D,0);
+	te_gl3.glBindVertexArray(window->render2D.flatVAO);
+
+	te_gl3.glUniform4f(te_gl3.glGetUniformLocation(window->render2D.flatShader, "sprite_color"), color.x,color.y,color.z,color.w);
+
+	float vx0 = x;
+	float vy0 = y;
+	float vx1 = (width + x);
+	float vy1 = (height + y);
+
+	float vertices[] = {
+		// first triangle
+		 vx1,  vy0,  // top right
+		 vx1,  vy1,  // bottom right
+		 vx0,  vy0,  // top left
+		// second triangle
+		 vx1,  vy1,  // bottom right
+		 vx0,  vy1,  // bottom left
+		 vx0,  vy0   // top left
+	};
+
+	te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, window->render2D.flatVBO);
+	te_gl3.glBufferSubData(TE_GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+	te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, 0);
+
+	te_gl3.glDrawArrays(TE_GL_TRIANGLES, 0, 6);
+	te_gl3.glBindVertexArray(0);
 }
 
 
