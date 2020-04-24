@@ -1331,6 +1331,17 @@ typedef te_GLsizei te_GLsizeiptr;
 #define TE_GL_FALSE 0
 #define TE_GL_TRUE 1
 
+typedef struct _tinyengine_gl3_bitmapBakedCharcter_t {
+  te_u16 x0,y0,x1,y1;
+  te_f32 xoff,yoff,xadvance;
+} _tinyengine_gl3_bitmapBakedCharcter;
+
+typedef struct _tinyengine_gl3_bitmapGlyphCache_t {
+	_tinyengine_gl3_bitmapBakedCharcter characterData[96]; // ASCII 32..126 is 95 glyphs
+	te_u32 resolution;
+	te_GLuint textureID;
+} _tinyengine_gl3_bitmapGlyphCache;
+
 #define TE_GL_VENDOR 0x1F00
 #define TE_GL_RENDERER 0x1F01
 #define TE_GL_VERSION 0x1F02
@@ -1405,6 +1416,8 @@ typedef struct tinyengine_gl3_functionTable {
 	void (_TE_GL_FUNCTION *glGenerateMipmap)(te_GLenum);
 
 	void (_TE_GL_FUNCTION *glActiveTexture)(te_GLenum);
+
+	void (_TE_GL_FUNCTION *glUniform3f)(te_GLint,te_GLfloat,te_GLfloat,te_GLfloat);
 }	te_gl3_functions;
 
 // TODO: Compiler check and switch on this
@@ -1413,6 +1426,7 @@ typedef struct tinyengine_gl3_functionTable {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
 te_gl3_functions te_gl3 = {
+	&_tinyengine_gl3_stub,
 	&_tinyengine_gl3_stub,
 	&_tinyengine_gl3_stub,
 	&_tinyengine_gl3_stub,
@@ -1520,6 +1534,8 @@ te_bool_u8 _tinyengine_gl3_init() {
 
 	_TE_GL_FUNCTION_LOAD(glActiveTexture);
 
+	_TE_GL_FUNCTION_LOAD(glUniform3f);
+
 	return TE_TRUE;
 }
 
@@ -1626,6 +1642,9 @@ void _tinyengine_gl3_updateView(tinyengine_windowContext* window, te_u32 width, 
 	te_gl3.glUniformMatrix4fv(te_gl3.glGetUniformLocation(window->render2D.flatShader,"projection"),1,TE_GL_FALSE,&window->render2D.projectionMatrix[0]);
 	te_gl3.glUseProgram(window->render2D.spriteShader);
 	te_gl3.glUniformMatrix4fv(te_gl3.glGetUniformLocation(window->render2D.spriteShader,"projection"),1,TE_GL_FALSE,&window->render2D.projectionMatrix[0]);
+	te_gl3.glUseProgram(window->render2D.textShader);
+	te_gl3.glUniformMatrix4fv(te_gl3.glGetUniformLocation(window->render2D.textShader,"projection"),1,TE_GL_FALSE,&window->render2D.projectionMatrix[0]);
+
 }
 
 te_bool_u8 _tinyengine_gl3_createWindowRenderContext(tinyengine_windowContext* window) {
@@ -1669,6 +1688,23 @@ te_bool_u8 _tinyengine_gl3_createWindowRenderContext(tinyengine_windowContext* w
 		te_gl3.glUseProgram(window->render2D.spriteShader);
 		te_gl3.glUniform1i(te_gl3.glGetUniformLocation(window->render2D.spriteShader, "texture_bank"), 0);
 	} else { return TE_FALSE; }
+
+	// Bitmap Glyph Cache Render Pipeline
+
+	te_gl3.glGenVertexArrays(1, &window->render2D.textVAO);
+	te_gl3.glGenBuffers(1, &window->render2D.textVBO);
+	te_gl3.glBindVertexArray(window->render2D.textVAO);
+	te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, window->render2D.textVBO);
+	te_gl3.glBufferData(TE_GL_ARRAY_BUFFER, sizeof(te_GLfloat) * 6 * 4, NULL, TE_GL_DYNAMIC_DRAW);
+	te_gl3.glEnableVertexAttribArray(0);
+	te_gl3.glVertexAttribPointer(0, 4, TE_GL_FLOAT, TE_GL_FALSE, 4 * sizeof(GLfloat), 0);
+	te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, 0);
+	te_gl3.glBindVertexArray(0);
+
+	if(_tinyengine_gl3_compileShader(&window->render2D.textShader,TE_GL3_TEXT_VERTEX_SRC,TE_GL3_TEXT_FRAGMENT_SRC)) {
+		te_gl3.glUseProgram(window->render2D.textShader);
+		te_gl3.glUniform1i(te_gl3.glGetUniformLocation(window->render2D.textShader, "texture_bank"), 0);
+	} else { return TE_FALSE;	}
 
 	return TE_TRUE;
 }
@@ -1748,6 +1784,64 @@ void _tinyengine_gl3_drawSprite(tinyengine_windowContext* window, te_GLuint text
 
 	te_gl3.glDrawArrays(TE_GL_TRIANGLES, 0, 6);
 	te_gl3.glBindVertexArray(0);
+}
+
+void _tinyengine_gl3_drawText(tinyengine_windowContext* window, _tinyengine_gl3_bitmapGlyphCache* font, const char* text, te_f32 x, te_f32 y, te_f32 scale, te_v3_f32 color) {
+
+	te_gl3.glUseProgram(window->render2D.textShader);
+
+	te_gl3.glUniform3f(te_gl3.glGetUniformLocation(window->render2D.textShader, "text_color"), color.x,color.y,color.z);
+	te_gl3.glBindTexture(TE_GL_TEXTURE_2D, font->textureID);
+	te_gl3.glBindVertexArray(window->render2D.textVAO);
+
+	const char* c = text;
+
+	while(*c != '\0'){
+
+		// TODO: Move this to GPU?
+		// TODO: Make this top down instead of down up
+
+		const _tinyengine_gl3_bitmapBakedCharcter *b = font->characterData + (*c >= 32 && *c <= 126 ? *c-32 : ' '-32);
+
+		int round_x = (int) floor((x + (b->xoff * scale)) + 0.5f);
+		int round_y = (int) floor((y + (b->yoff * scale)) + 0.5f);
+
+		float x0 = round_x;
+		float y0 = round_y;
+
+		float x1 = round_x + ((b->x1 - b->x0) * scale);
+		float y1 = round_y + ((b->y1 - b->y0) * scale);
+
+		float ipw = 1.0f / font->resolution;
+		float iph = 1.0f / font->resolution;
+
+		float s0 = b->x0 * ipw;
+		float t0 = b->y0 * iph;
+		float s1 = b->x1 * ipw;
+		float t1 = b->y1 * iph;
+
+		x += b->xadvance * scale;
+
+		GLfloat vertices[6][4] = {
+			{ s0,t0, x0,y0 },
+			{ s0,t1, x0,y1 },
+			{ s1,t1, x1,y1 },
+			{ s0,t0, x0,y0 },
+			{ s1,t1, x1,y1 },
+			{ s1,t0, x1,y0 }
+		};
+
+		te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, window->render2D.textVBO);
+		te_gl3.glBufferSubData(TE_GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+		te_gl3.glBindBuffer(TE_GL_ARRAY_BUFFER, 0);
+
+		te_gl3.glDrawArrays(TE_GL_TRIANGLES, 0, 6);
+
+		c++;
+	}
+
+	te_gl3.glBindVertexArray(0);
+	te_gl3.glBindTexture(TE_GL_TEXTURE_2D, 0);
 }
 
 
